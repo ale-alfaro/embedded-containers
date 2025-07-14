@@ -1,0 +1,58 @@
+FROM base-ncs
+
+ARG PYTHON_VENV_PATH=/opt/python/venv
+ARG ZSDK_VERSION
+# Install APT packages
+RUN <<EOF
+	# Install Python
+	apt-get install --no-install-recommends -y \
+		python3 \
+		python3-dev \
+		python3-pip \
+		python3-ply \
+		python3-setuptools \
+		python3-venv \
+		python-is-python3
+
+	# Clean up stale packages
+	apt-get autoremove --purge -y
+
+	# Clean up local repository
+	apt-get clean -y
+	rm -rf /var/lib/apt/lists/*
+EOF
+
+# Set up Python virtual environment for Zephyr
+RUN <<EOF
+	# Initialise virtual environment
+	mkdir -p ${PYTHON_VENV_PATH}
+	python3 -m venv ${PYTHON_VENV_PATH}
+
+	# Activate virtual environment for subsequent steps
+	source ${PYTHON_VENV_PATH}/bin/activate
+
+	# Install pip package manager
+	pip install --no-cache-dir --upgrade pip setuptools wheel
+
+	# Install Zephyr requirements
+	pip install --no-cache-dir \
+		-r https://raw.githubusercontent.com/zephyrproject-rtos/zephyr/main/scripts/requirements.txt \
+		-r https://raw.githubusercontent.com/zephyrproject-rtos/mcuboot/main/scripts/requirements.txt \
+		GitPython \
+		imgtool \
+		nrf-regtool~=9.0.1 \
+		numpy \
+		PyGithub \
+		pylint \
+		sh \
+		statistics \
+		west
+
+	# Run pip check (x86 only for now because it fails on ARM)
+	if [ "${HOSTTYPE}" = "x86_64" ]; then
+		pip check
+	fi
+EOF
+
+# Make Zephyr Python virtual environment available globally
+ENV PATH=${PYTHON_VENV_PATH}/bin:$PATH

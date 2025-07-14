@@ -1,0 +1,14 @@
+FROM base-ncs
+USER root
+ARG NCS_VERSION
+
+# Install NCS toolchain using nrfutil
+RUN nrfutil install completion device sdk-manager && \
+    nrfutil sdk-manager toolchain install --ncs-version ${NCS_VERSION} && \
+    echo 'source <(nrfutil sdk-manager toolchain env --as-script --ncs-version '${NCS_VERSION}')' >> ~/.bashrc && \
+    echo '[[ -r "${HOME}/.nrfutil/share/nrfutil-completion/scripts/bash/setup.bash" ]] && . "${HOME}/.nrfutil/share/nrfutil-completion/scripts/bash/setup.bash"' >> ~/.bashrc
+
+ARG WORKSPACE_FOLDER
+VOLUME [ "${WORKSPACE_FOLDER}" ]
+
+ENTRYPOINT [ "postCreate.sh", "${WORKSPACE_FOLDER}" ]
