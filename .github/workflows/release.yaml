@@ -47,7 +47,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/bake-action@v6
         with:
-          source: ./image/ncs
+          source: .
           no-cache : true
           github-token: ${{ secrets.GITHUB_TOKEN }}
           push: true
