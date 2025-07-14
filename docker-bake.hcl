@@ -17,7 +17,6 @@ group "default" {
 
 target "cpp-base" {
   dockerfile = "./images/cpp/Dockerfile.base"
-  context = "./images/cpp"
   args = {
     "GCC_VER": "${GCC_VERSION}",
     "LLVM_VER": "${LLVM_VERSION}"
@@ -27,7 +26,6 @@ target "cpp-base" {
 
 target "cpp-base-dev" {
   dockerfile = "./images/cpp/Dockerfile.dev"
-  context = "./images/cpp"
   contexts = {
     base = "target:cpp-base"
   }
@@ -39,28 +37,55 @@ target "cpp-base-dev" {
   platforms = ["linux/amd64", "linux/arm64"]
 }
 
-target "ncs-base" {
-  dockerfile = "./images/ncs/Dockerfile.base"
-  context = "./images/ncs"
-  contexts = {
-    "ubuntu-cpp" = "target:cpp-base-dev"
-  }
+target "common-variables" {
   args = {
-    "NCS_VERSION": "${NCS_VERSION}",
-    "ZSDK_VERSION": "${ZSDK_VERSION}"
+    "NCS_VERSION" = "${NCS_VERSION}"
+    "ZSDK_VERSION" = "${ZSDK_VERSION}"
+    "WORKSPACE_FOLDER" = "/workspace"
   }
 }
 
+target "base-ncs" {
+  inherits = [ "common-variables" ]
+  contexts = {
+      "ubuntu-cpp" = "docker-image://ghcr.io/ale-alfaro/base-dev:latest"
+  }
+  dockerfile = "Dockerfile.base"
+
+
+}
+
+target "common_metadata" {
+
+  tags = [
+    "ghcr.io/ale-alfaro/ncs:${NCS_VERSION}"
+  ]
+  labels = {
+      "org.opencontainers.image.source" = "https://github.com/ale-alfaro/embedded-containers",
+      "org.opencontainers.image.description" = "NCS development environment for linux"
+  }
+  annotations = ["index,manifest:org.opencontainers.image.authors=ale-alfaro", 
+                "index,manifest:org.opencontainers.image.url=https://github.com/ale-alfaro/embedded-containers"]
+}
+
+target "ncs-base" {
+  dockerfile = "./images/ncs/Dockerfile.base"
+  contexts = {
+    "ubuntu-cpp" = "target:cpp-base-dev"
+  }
+  inherits = [ "common-variables" ]
+}
+
 target "ncs" {
+  inherits = [ "common-variables" , "common_metadata" ]
   name = "ncs-${platform}"
   dockerfile = "./images/ncs/Dockerfile.${platform}"
-  context = "./images/ncs"
   contexts = {
     "base-ncs" = "target:ncs-base"
   }
+
   matrix = {
     "platform" = ["amd64", "arm64"]
   }
   platforms = ["linux/${platform}"]
-  tags = ["ghcr.io/ale-alfaro/ncs:${NCS_VERSION}"]
 }
