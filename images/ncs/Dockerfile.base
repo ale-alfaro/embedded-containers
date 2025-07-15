@@ -1,34 +1,81 @@
 # syntax=docker/dockerfile:1
-FROM --platform=${BUILDPLATFORM} alpine AS toolchain-downloader
+FROM ubuntu-cpp AS base-ncs
 ARG TARGETPLATFORM
 ARG ZSDK_VERSION
 ENV ZSDK_VERSION=$ZSDK_VERSION
 
-RUN case ${TARGETPLATFORM} in \
-         "linux/amd64")  NRFUTIL_ARCH=x86_64-unknown-linux-gnu; HOSTTYPE=x86_64  ;; \
-         "linux/arm64")  NRFUTIL_ARCH=aarch64-unknown-linux-gnu; HOSTTYPE=aarch64  ;; \
-         *) echo "Unsupported architecture: ${TARGETPLATFORM}" && exit 1 ;; \
-    esac && \
-    mkdir -p /opt/toolchains && \
-    cd /opt/toolchains && \
-    if [ "${HOSTTYPE}" = "x86_64" ]; then \
-        wget https://files.nordicsemi.com/artifactory/swtools/external/nrfutil/executables/${NRFUTIL_ARCH}/nrfutil -O nrfutil && \
-        chmod +x nrfutil; \
-    else \
-        touch nrfutil; \
-    fi && \
-    wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${ZSDK_VERSION}/zephyr-sdk-${ZSDK_VERSION}_linux-${HOSTTYPE}_minimal.tar.xz && \
-    tar xf zephyr-sdk-${ZSDK_VERSION}_linux-${HOSTTYPE}_minimal.tar.xz
-
-FROM ubuntu-cpp AS base-ncs
-ARG ZSDK_VERSION
-COPY --from=toolchain-downloader --chmod=755 /opt/toolchains/nrfutil /usr/bin/nrfutil
-COPY --from=toolchain-downloader /opt/toolchains/zephyr-sdk-${ZSDK_VERSION} /opt/toolchains/zephyr-sdk-${ZSDK_VERSION}
+ARG TOOLCHAIN_FOLDER="/toolchains"
+ARG NCS_TOOLCHAIN_DIR="${TOOLCHAIN_FOLDER}/ncs"
+ENV NRFUTIL_HOME="${NCS_TOOLCHAIN_DIR}/.nrfutil"
+ARG NCS_VERSION=3.0.0
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get -y install --no-install-recommends \
-    bash-completion \
-    gperf \
-    ccache \
-    dfu-util \
-    device-tree-compiler \
-    && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+		&& apt-get -y install --no-install-recommends \
+		bash-completion \
+		gperf \
+		ccache \
+		dfu-util \
+		device-tree-compiler \
+		&& apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
+ARG WORKSPACE_FOLDER
+ARG APPLICATION_DIR=${WORKSPACE_FOLDER}/application
+ARG DEPS_DIR=${WORKSPACE_FOLDER}/deps
+RUN case ${TARGETPLATFORM} in \
+				 "linux/amd64")  NRFUTIL_ARCH=x86_64-unknown-linux-gnu; HOSTTYPE=x86_64  ;; \
+				 *) echo "Unsupported architecture: ${TARGETPLATFORM}" && exit 1 ;; \
+		esac && \
+		wget https://files.nordicsemi.com/artifactory/swtools/external/nrfutil/executables/${NRFUTIL_ARCH}/nrfutil -O /usr/local/bin/nrfutil && \
+		chmod +x /usr/local/bin/nrfutil && \
+		mkdir -p ${NRFUTIL_HOME} && \
+		nrfutil install completion device sdk-manager && \
+		nrfutil sdk-manager config install-dir set ${NCS_TOOLCHAIN_DIR} && \
+		nrfutil sdk-manager toolchain install --ncs-version v${NCS_VERSION} && \
+		mkdir -p ${APPLICATION_DIR} && mkdir -p ${DEPS_DIR}
+
+
+
+ENV NCS_VERSION=${NCS_VERSION}
+COPY <<EOF ${APPLICATION_DIR}/west.yml
+manifest:
+  group-filter: [+unstable,-optional]
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
+  projects:
+    - name: sdk-nrf
+      remote: ncs
+      revision: v${NCS_VERSION}
+      path: nrf
+      import:
+        path-prefix: deps
+        name-allowlist:
+          - cmsis
+          - hal_nordic
+          - mcuboot
+          - mbedtls
+          - nrfxlib
+          - segger
+          - zephyr
+EOF
+
+RUN cat <<-EOT >> ~/.bashrc
+	source <(nrfutil sdk-manager toolchain env --as-script --ncs-version v${NCS_VERSION})
+	[[ -r ${NRFUTIL_HOME}/.nrfutil/share/nrfutil-completion/scripts/bash/setup.bash ]] && . ${NRFUTIL_HOME}/.nrfutil/share/nrfutil-completion/scripts/bash/setup.bash
+	alias west='nrfutil sdk-manager toolchain launch --ncs-version v${NCS_VERSION} -- west'
+EOT
+
+ENV PATH=${NRFUTIL_HOME}/bin:$PATH
+
+WORKDIR ${WORKSPACE_FOLDER}
+RUN nrfutil sdk-manager toolchain launch --ncs-version v${NCS_VERSION} -- west init -l ${APPLICATION_DIR} && \
+		nrfutil sdk-manager toolchain launch --ncs-version v${NCS_VERSION} -- west update --narrow -o=--depth=1 && \
+    nrfutil sdk-manager toolchain launch --ncs-version v${NCS_VERSION} -- west config zephyr.base "${DEPS_DIR}/zephyr" && \
+		echo "West workspace initialized with manifest project: ${APPLICATION_DIR}/west.yml"
+
+RUN cat <<-EOT > ${APPLICATION_DIR}/env.sh
+		#!/bin/bash
+		source <(nrfutil sdk-manager toolchain env --as-script --ncs-version v${NCS_VERSION})
+		source \$(west config zephyr.base)/zephyr-env.sh
+		west zephyr-export
+EOT

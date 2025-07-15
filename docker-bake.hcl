@@ -37,24 +37,6 @@ target "cpp-base-dev" {
   platforms = ["linux/amd64", "linux/arm64"]
 }
 
-target "common-variables" {
-  args = {
-    "NCS_VERSION" = "${NCS_VERSION}"
-    "ZSDK_VERSION" = "${ZSDK_VERSION}"
-    "WORKSPACE_FOLDER" = "/workspace"
-  }
-}
-
-target "base-ncs" {
-  inherits = [ "common-variables" ]
-  contexts = {
-      "ubuntu-cpp" = "docker-image://ghcr.io/ale-alfaro/base-dev:latest"
-  }
-  dockerfile = "Dockerfile.base"
-
-
-}
-
 target "common_metadata" {
 
   tags = [
@@ -68,24 +50,17 @@ target "common_metadata" {
                 "index,manifest:org.opencontainers.image.url=https://github.com/ale-alfaro/embedded-containers"]
 }
 
-target "ncs-base" {
+target "ncs" {
+  inherits = [ "common_metadata" ]
   dockerfile = "./images/ncs/Dockerfile.base"
   contexts = {
-    "ubuntu-cpp" = "target:cpp-base-dev"
+      "ubuntu-cpp" = "docker-image://ghcr.io/ale-alfaro/base-dev:latest"
   }
-  inherits = [ "common-variables" ]
-}
-
-target "ncs" {
-  inherits = [ "common-variables" , "common_metadata" ]
-  name = "ncs-${platform}"
-  dockerfile = "./images/ncs/Dockerfile.${platform}"
-  contexts = {
-    "base-ncs" = "target:ncs-base"
+  args = {
+    "NCS_VERSION" = "${NCS_VERSION}"
+    "ZSDK_VERSION" = "${ZSDK_VERSION}"
+    "WORKSPACE_FOLDER" = "/workspace"
   }
 
-  matrix = {
-    "platform" = ["amd64", "arm64"]
-  }
-  platforms = ["linux/${platform}"]
+  platforms = ["linux/amd64"]
 }
